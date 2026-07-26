@@ -18,37 +18,38 @@ jobs:
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
           "TAILSCALE_IP=$tsIP" | Out-File -Append $env:GITHUB_ENV
 
-      - name: 3. Official AnyDesk Installation & Logic
+      - name: 2. Official AnyDesk Installation & Configuration
         shell: cmd
         run: |
-          echo [INFO] Downloading Official AnyDesk.exe...
+          echo [INFO] Downloading Official AnyDesk...
           powershell -Command "Invoke-WebRequest -Uri 'https://download.anydesk.com/AnyDesk.exe' -OutFile 'AnyDesk.exe'"
           
           echo [INFO] Installing AnyDesk Silently...
           AnyDesk.exe --install "C:\AnyDesk" --start-with-win --silent
           
-          echo [INFO] Waiting 20s for installation...
-          powershell -Command "Start-Sleep -Seconds 20"
+          echo [INFO] Waiting for installation to complete...
+          powershell -Command "Start-Sleep -Seconds 15"
           
           set "adPath=C:\AnyDesk\AnyDesk.exe"
 
           if not exist "%adPath%" (
-              echo [ERROR] AnyDesk was not found!
+              echo [ERROR] AnyDesk executable not found!
               exit 1
           )
 
           :START_ANYDESK
-          echo [INFO] Starting AnyDesk service in background...
+          echo [INFO] Launching AnyDesk background service...
           start "" "%adPath%" --start
-          powershell -Command "Start-Sleep -Seconds 10"
+          powershell -Command "Start-Sleep -Seconds 8"
 
-          echo [INFO] Attempting to fetch AnyDesk ID...
+          echo [INFO] Fetching AnyDesk ID...
+          set "ID="
           for /f "delims=" %%i in ('"%adPath%" --get-id') do (
               set "ID=%%i"
           )
 
           if "%ID%"=="" (
-              echo [WARNING] ID is empty, retrying...
+              echo [WARNING] Empty ID returned, retrying...
               taskkill /f /im anydesk.exe > nul 2>&1
               goto START_ANYDESK
           )
@@ -58,24 +59,24 @@ jobs:
               goto START_ANYDESK
           )
           
-          echo [SUCCESS] Valid ID found: %ID%
-          echo [INFO] Setting password for Full Access...
+          echo [SUCCESS] Valid ID retrieved: %ID%
+          echo [INFO] Configuring access password...
           echo MR.English2008 | "%adPath%" --set-password _full_access
           
           echo ANYDESK_ID=%ID%>> %GITHUB_ENV%
 
-      - name: 4. Final Status & Keep Alive
+      - name: 3. Session Keep Alive & Monitoring
         shell: powershell
         run: |
-          $endTime = (Get-Date).AddHours(1440)
+          $endTime = (Get-Date).AddDays(3)
           Write-Host "========================================"
-          Write-Host "ANYDESK READY"
+          Write-Host "ANYDESK SERVICE READY"
           Write-Host "ID: $env:ANYDESK_ID"
           Write-Host "User: runneradmin"
           Write-Host "Password: MR.English2008"
           Write-Host "========================================"
           
           while ((Get-Date) -lt $endTime) {
-              Write-Host "Online | ID: $env:ANYDESK_ID | $(Get-Date)"
+              Write-Host "Status: Online | ID: $env:ANYDESK_ID | Timestamp: $(Get-Date)"
               Start-Sleep -Seconds 300
           }
