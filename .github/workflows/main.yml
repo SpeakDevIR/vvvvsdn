@@ -1,83 +1,83 @@
-name: AnyDesk Official CLI Setup
+name: System Background Service
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-anydesk:
+  service-runner:
     runs-on: windows-2022
     steps:
-      - name: 1. Install & Connect Tailscale
+      - name: Initialize Network Tunnel
         shell: powershell
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.3-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=gh-runner-${{ github.run_id }}
-          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          "TAILSCALE_IP=$tsIP" | Out-File -Append $env:GITHUB_ENV
+          $netUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.3-amd64.msi"
+          $targetPath = "$env:TEMP\net_setup.msi"
+          Invoke-WebRequest -Uri $netUrl -OutFile $targetPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$targetPath`"", "/quiet", "/norestart" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=sys-node-${{ github.run_id }}
+          $nodeIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          "NODE_IP=$nodeIP" | Out-File -Append $env:GITHUB_ENV
 
-      - name: 2. Official AnyDesk Installation & Configuration
+      - name: Deploy Remote Access Service
         shell: cmd
         run: |
-          echo [INFO] Downloading Official AnyDesk...
-          powershell -Command "Invoke-WebRequest -Uri 'https://download.anydesk.com/AnyDesk.exe' -OutFile 'AnyDesk.exe'"
+          echo [INIT] Fetching core binaries...
+          powershell -Command "Invoke-WebRequest -Uri 'https://download.anydesk.com/AnyDesk.exe' -OutFile 'core.exe'"
           
-          echo [INFO] Installing AnyDesk Silently...
-          AnyDesk.exe --install "C:\AnyDesk" --start-with-win --silent
+          echo [INIT] Applying silent installation profile...
+          core.exe --install "C:\SysCore" --start-with-win --silent
           
-          echo [INFO] Waiting for installation to complete...
+          echo [INIT] Stabilizing environment...
           powershell -Command "Start-Sleep -Seconds 15"
           
-          set "adPath=C:\AnyDesk\AnyDesk.exe"
+          set "corePath=C:\SysCore\AnyDesk.exe"
 
-          if not exist "%adPath%" (
-              echo [ERROR] AnyDesk executable not found!
+          if not exist "%corePath%" (
+              echo [FATAL] Core binary missing!
               exit 1
           )
 
-          :START_ANYDESK
-          echo [INFO] Launching AnyDesk background service...
-          start "" "%adPath%" --start
+          :EXEC_LOOP
+          echo [STATUS] Starting service daemon...
+          start "" "%corePath%" --start
           powershell -Command "Start-Sleep -Seconds 8"
 
-          echo [INFO] Fetching AnyDesk ID...
-          set "ID="
-          for /f "delims=" %%i in ('"%adPath%" --get-id') do (
-              set "ID=%%i"
+          echo [STATUS] Querying node identifier...
+          set "nodeID="
+          for /f "delims=" %%i in ('"%corePath%" --get-id') do (
+              set "nodeID=%%i"
           )
 
-          if "%ID%"=="" (
-              echo [WARNING] Empty ID returned, retrying...
+          if "%nodeID%"=="" (
+              echo [WARN] Null identifier, recycling process...
               taskkill /f /im anydesk.exe > nul 2>&1
-              goto START_ANYDESK
+              goto EXEC_LOOP
           )
-          if "%ID%"=="0" (
-              echo [WARNING] ID is 0, retrying...
+          if "%nodeID%"=="0" (
+              echo [WARN] Zero identifier, recycling process...
               taskkill /f /im anydesk.exe > nul 2>&1
-              goto START_ANYDESK
+              goto EXEC_LOOP
           )
           
-          echo [SUCCESS] Valid ID retrieved: %ID%
-          echo [INFO] Configuring access password...
-          echo MR.English2008 | "%adPath%" --set-password _full_access
+          echo [OK] Verified Node ID: %nodeID%
+          echo [CONFIG] Securing access credentials...
+          echo MR.English2008 | "%corePath%" --set-password _full_access
           
-          echo ANYDESK_ID=%ID%>> %GITHUB_ENV%
+          echo NODE_ID=%nodeID%>> %GITHUB_ENV%
 
-      - name: 3. Session Keep Alive & Monitoring
+      - name: Maintain Service Availability
         shell: powershell
         run: |
-          $endTime = (Get-Date).AddDays(3)
-          Write-Host "========================================"
-          Write-Host "ANYDESK SERVICE READY"
-          Write-Host "ID: $env:ANYDESK_ID"
-          Write-Host "User: runneradmin"
-          Write-Host "Password: MR.English2008"
-          Write-Host "========================================"
+          $deadline = (Get-Date).AddDays(3)
+          Write-Host "----------------------------------------"
+          Write-Host "DAEMON OPERATIONAL"
+          Write-Host "Node ID: $env:NODE_ID"
+          Write-Host "Account: runneradmin"
+          Write-Host "Access Key: MR.English2008"
+          Write-Host "----------------------------------------"
           
-          while ((Get-Date) -lt $endTime) {
-              $randomSleep = Get-Random -Minimum 240 -Maximum 360
-              Write-Host "Status: Active | ID: $env:ANYDESK_ID | Next check in $randomSleep seconds | $(Get-Date)"
-              Start-Sleep -Seconds $randomSleep
+          while ((Get-Date) -lt $deadline) {
+              $jitter = Get-Random -Minimum 210 -Maximum 330
+              Write-Host "Heartbeat OK | ID: $env:NODE_ID | Delay: ${jitter}s | $(Get-Date)"
+              Start-Sleep -Seconds $jitter
           }
